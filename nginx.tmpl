@@ -186,7 +186,16 @@ upstream {{ $upstream_name }} {
 {{/* Use the cert specified on the container or fallback to the best vhost match */}}
 {{ $cert := (coalesce $certName $vhostCert) }}
 
-{{ $is_https := (and (ne $https_method "nohttps") (ne $cert "") (exists (printf "/etc/nginx/certs/%s.crt" $cert)) (exists (printf "/etc/nginx/certs/%s.key" $cert))) }}
+{{/* Check if a custom cert pathname is being used */}}
+{{ $customCertPathname := (coalesce (first (groupByKeys $containers "Env.CERT_PATHNAME")) "") }}
+
+{{/* Check if a custom private key pathname is being used */}}
+{{ $customKeyPathname := (coalesce (first (groupByKeys $containers "Env.PRIVATE_KEY_PATHNAME")) "") }}
+
+{{/* Check if a custom chain pathname is being used */}}
+{{ $customChainPathname := (coalesce (first (groupByKeys $containers "Env.CHAIN_PATHNAME")) "") }}
+
+{{ $is_https := (or (and (ne $customCertPathname "") (ne $customKeyPathname "")) (and (ne $https_method "nohttps") (ne $cert "") (exists (printf "/etc/nginx/certs/%s.crt" $cert)) (exists (printf "/etc/nginx/certs/%s.key" $cert)))) }}
 
 {{ if $is_https }}
 
@@ -249,17 +258,17 @@ server {
 	ssl_session_cache shared:SSL:50m;
 	ssl_session_tickets off;
 
-	ssl_certificate /etc/nginx/certs/{{ (printf "%s.crt" $cert) }};
-	ssl_certificate_key /etc/nginx/certs/{{ (printf "%s.key" $cert) }};
+	ssl_certificate {{ (when (ne $customCertPathname "") $customCertPathname (printf "/etc/nginx/certs/%s.crt" $cert)) }};
+	ssl_certificate_key {{ (when (ne $customKeyPathname "") $customKeyPathname (printf "/etc/nginx/certs/%s.key" $cert)) }};
 
 	{{ if (exists (printf "/etc/nginx/certs/%s.dhparam.pem" $cert)) }}
 	ssl_dhparam {{ printf "/etc/nginx/certs/%s.dhparam.pem" $cert }};
 	{{ end }}
 
-	{{ if (exists (printf "/etc/nginx/certs/%s.chain.pem" $cert)) }}
+	{{ if (or (ne $customChainPathname "") (exists (printf "/etc/nginx/certs/%s.chain.pem" $cert))) }}
 	ssl_stapling on;
 	ssl_stapling_verify on;
-	ssl_trusted_certificate {{ printf "/etc/nginx/certs/%s.chain.pem" $cert }};
+	ssl_trusted_certificate {{ (when (ne $customChainPathname "") $customChainPathname (printf "/etc/nginx/certs/%s.chain.pem" $cert)) }};
 	{{ end }}
 
 	{{ if (not (or (eq $https_method "noredirect") (eq $hsts "off"))) }}
